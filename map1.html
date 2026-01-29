@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>COVID-19 Rates (2020) — County Choropleth</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.8.1/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.8.1/mapbox-gl.js"></script>
+
+  <style>
+    body { margin: 0; padding: 0; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+
+    /* Title box */
+    #titlebox{
+      position:absolute;
+      top:16px;
+      left:16px;
+      background: rgba(0,0,0,0.55);
+      color:#fff;
+      padding:10px 12px;
+      border-radius:8px;
+      font-family: Arial, sans-serif;
+      max-width: 360px;
+    }
+    #titlebox .title{
+      font-size:16px;
+      font-weight:700;
+      margin:0 0 4px 0;
+    }
+    #titlebox .subtitle{
+      font-size:12px;
+      margin:0;
+      opacity:0.9;
+      line-height:1.3;
+    }
+
+    /* Legend */
+    #legend {
+      position: absolute;
+      right: 16px;
+      bottom: 24px;
+      background: rgba(255,255,255,0.95);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      width: 190px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    }
+    #legend .legend-title {
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 4px 0;
+    }
+    .swatch {
+      width: 18px;
+      height: 12px;
+      border-radius: 2px;
+      border: 1px solid rgba(0,0,0,0.15);
+      flex: 0 0 auto;
+    }
+    .legend-label { white-space: nowrap; }
+    #legend .source {
+      margin-top: 8px;
+      font-size: 11px;
+      text-align: right;
+    }
+    #legend a { color: #111; }
+
+    /* Optional: make popups more readable on dark basemap */
+    .mapboxgl-popup-content{
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      padding: 10px 10px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <div id="titlebox">
+    <div class="title">COVID-19 Case Rates (2020)</div>
+    <p class="subtitle">County-level choropleth — cases per 1,000 residents</p>
+  </div>
+
+  <div id="legend">
+    <div class="legend-title">Rates (per 1,000)</div>
+    <div id="legend-items"></div>
+    <div class="source">Sources: NYT, ACS 2018, Census</div>
+  </div>
+
+  <script>
+    // ===== Mapbox token =====
+    mapboxgl.accessToken = "pk.eyJ1IjoiaGlldXRyYW4yIiwiYSI6ImNtaGVkdnNvNTBkNG0ybXExNjFobWFpMm8ifQ.csZ4K-7ctmQ5pw29u2U5Pw";
+
+    // Your actual field names from the GeoJSON:
+    const RATE_FIELD = "rates";   // <-- confirmed in your snippet
+    const COUNTY_FIELD = "county";
+    const STATE_FIELD = "state";
+    const CASES_FIELD = "cases";
+    const DEATHS_FIELD = "deaths";
+    const POP_FIELD = "pop18";
+
+    // Choropleth breaks + colors (feel free to tweak)
+    const breaks = [0, 10, 25, 50, 75, 100, 150];
+    const colors = [
+      "rgb(237,248,233)",
+      "rgb(199,233,192)",
+      "rgb(161,217,155)",
+      "rgb(116,196,118)",
+      "rgb(65,171,93)",
+      "rgb(35,139,69)",
+      "rgb(0,90,50)"
+    ];
+
+    const map = new mapboxgl.Map({
+      container: "map",
+      style: "mapbox://styles/mapbox/dark-v10",
+      center: [-98.5, 39.5],
+      zoom: 3
+    });
+
+    // Lab requirement: Albers projection
+    map.setProjection("albers");
+
+    function buildLegend() {
+      const el = document.getElementById("legend-items");
+      el.innerHTML = "";
+
+      for (let i = 0; i < breaks.length; i++) {
+        const from = breaks[i];
+        const to = (i < breaks.length - 1) ? breaks[i + 1] : null;
+
+        const row = document.createElement("div");
+        row.className = "legend-row";
+
+        const swatch = document.createElement("span");
+        swatch.className = "swatch";
+        swatch.style.background = colors[i];
+
+        const label = document.createElement("span");
+        label.className = "legend-label";
+        label.textContent = to === null ? `${from}+` : `${from}–${to}`;
+
+        row.appendChild(swatch);
+        row.appendChild(label);
+        el.appendChild(row);
+      }
+    }
+
+    const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
+
+    map.on("load", () => {
+      buildLegend();
+
+      map.addSource("covid-rates", {
+        type: "geojson",
+        data: "assets/us-covid-2020-rates.json"
+      });
+
+      // Choropleth fill
+      map.addLayer({
+        id: "covid-rates-fill",
+        type: "fill",
+        source: "covid-rates",
+        paint: {
+          "fill-color": [
+            "step",
+            ["coalesce", ["to-number", ["get", RATE_FIELD]], 0],
+            colors[0], breaks[1],
+            colors[1], breaks[2],
+            colors[2], breaks[3],
+            colors[3], breaks[4],
+            colors[4], breaks[5],
+            colors[5], breaks[6],
+            colors[6]
+          ],
+          "fill-opacity": 0.75
+        }
+      });
+
+      // Thin outline
+      map.addLayer({
+        id: "covid-rates-outline",
+        type: "line",
+        source: "covid-rates",
+        paint: {
+          "line-color": "rgba(255,255,255,0.25)",
+          "line-width": 0.5
+        }
+      });
+
+      // Hover highlight outline (using fips match so it always works)
+      map.addLayer({
+        id: "covid-rates-highlight",
+        type: "line",
+        source: "covid-rates",
+        paint: {
+          "line-color": "rgba(255,255,255,0.9)",
+          "line-width": 2
+        },
+        filter: ["==", ["get", "fips"], ""]
+      });
+
+      map.on("mousemove", "covid-rates-fill", (e) => {
+        map.getCanvas().style.cursor = "pointer";
+
+        const f = e.features && e.features[0];
+        if (!f) return;
+
+        const p = f.properties || {};
+        const county = p[COUNTY_FIELD] ?? "Unknown county";
+        const state = p[STATE_FIELD] ?? "";
+        const fips = p["fips"] ?? "";
+
+        // Set highlight filter by fips
+        map.setFilter("covid-rates-highlight", ["==", ["get", "fips"], fips]);
+
+        // Values
+        const rate = p[RATE_FIELD];
+        const cases = p[CASES_FIELD];
+        const deaths = p[DEATHS_FIELD];
+        const pop = p[POP_FIELD];
+
+        popup
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div>
+              <div style="font-weight:700; margin-bottom:4px;">
+                ${county}${state ? ", " + state : ""}
+              </div>
+              <div><strong>Rate:</strong> ${rate ?? "N/A"} per 1,000</div>
+              <div><strong>Cases:</strong> ${cases ?? "N/A"}</div>
+              <div><strong>Deaths:</strong> ${deaths ?? "N/A"}</div>
+              <div><strong>Pop (2018):</strong> ${pop ?? "N/A"}</div>
+            </div>
+          `)
+          .addTo(map);
+      });
+
+      map.on("mouseleave", "covid-rates-fill", () => {
+        map.getCanvas().style.cursor = "";
+        popup.remove();
+        map.setFilter("covid-rates-highlight", ["==", ["get", "fips"], ""]);
+      });
+    });
+  </script>
+</body>
+</html>
